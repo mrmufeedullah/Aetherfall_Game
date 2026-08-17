@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Aetherfall — 3D Adventure</title>
+<style>
+  :root{ --accent:#5ce1e6; --accent2:#ffcb6b; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; }
+  html,body{ margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#0a0e14; font-family:'Segoe UI',system-ui,sans-serif; }
+  canvas{ display:block; touch-action:none; }
+
+  #hud{ position:fixed; top:0; left:0; right:0; padding:14px 18px; display:flex; justify-content:space-between;
+        align-items:flex-start; pointer-events:none; z-index:10; color:#eef; }
+  .pill{ background:rgba(10,14,20,.55); backdrop-filter:blur(6px); border:1px solid rgba(255,255,255,.08);
+         border-radius:12px; padding:8px 14px; font-size:14px; letter-spacing:.3px; }
+  #score{ font-weight:600; color:var(--accent2); }
+  #status{ display:flex; align-items:center; gap:6px; }
+  #dot{ width:8px; height:8px; border-radius:50%; background:#ff5c5c; box-shadow:0 0 6px #ff5c5c; }
+  #dot.on{ background:#5cff8a; box-shadow:0 0 6px #5cff8a; }
+
+  #crosshair{ position:fixed; top:50%; left:50%; width:6px; height:6px; margin:-3px 0 0 -3px;
+              border-radius:50%; background:rgba(255,255,255,.6); pointer-events:none; z-index:9; display:none; }
+
+  #toast{ position:fixed; top:70px; left:50%; transform:translateX(-50%); color:#fff; font-size:15px;
+          background:rgba(10,14,20,.6); padding:6px 16px; border-radius:20px; opacity:0; transition:opacity .3s;
+          pointer-events:none; z-index:11; }
+
+  #overlay{ position:fixed; inset:0; background:radial-gradient(ellipse at center,#131a26 0%,#060810 100%);
+            display:flex; align-items:center; justify-content:center; z-index:30; color:#eef; text-align:center; padding:20px; }
+  #panel{ max-width:480px; width:100%; }
+  #panel h1{ font-size:2.4em; margin:0 0 4px; background:linear-gradient(90deg,var(--accent),var(--accent2));
+             -webkit-background-clip:text; background-clip:text; color:transparent; letter-spacing:1px; }
+  #panel p{ opacity:.75; line-height:1.5; font-size:14px; }
+  #panel label{ display:block; font-size:12px; opacity:.6; margin:14px 0 4px; text-align:left; }
+  #panel input[type=text]{ width:100%; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.15);
+             background:rgba(255,255,255,.06); color:#fff; font-size:14px; }
+  .btnrow{ display:flex; gap:10px; margin-top:18px; }
+  button.big{ flex:1; padding:13px; border:none; border-radius:10px; font-size:15px; font-weight:600; cursor:pointer;
+              transition:transform .12s; }
+  button.big:active{ transform:scale(.96); }
+  #playSolo{ background:linear-gradient(135deg,var(--accent),#3aa9c9); color:#04222a; }
+  #playNet{ background:rgba(255,255,255,.08); color:#eef; border:1px solid rgba(255,255,255,.2) !important; }
+  .keys{ display:flex; gap:8px; justify-content:center; margin-top:16px; flex-wrap:wrap; }
+  .key{ background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); border-radius:6px;
+        padding:4px 10px; font-size:12px; }
+
+  #endScreen{ position:fixed; inset:0; background:rgba(6,8,16,.85); display:none; align-items:center;
+              justify-content:center; z-index:40; color:#fff; text-align:center; }
+  #endScreen h2{ font-size:2em; color:var(--accent2); }
+  #restart{ margin-top:14px; padding:12px 26px; border:none; border-radius:10px; background:var(--accent);
+            color:#04222a; font-weight:700; cursor:pointer; font-size:14px; }
+
+  /* mobile controls */
+  #mobileControls{ position:fixed; inset:0; pointer-events:none; z-index:12; display:none; }
+  #joyZone,#lookZone{ position:absolute; bottom:0; width:50%; height:55%; pointer-events:auto; }
+  #joyZone{ left:0; } #lookZone{ right:0; }
+  #joyBase{ position:absolute; width:100px; height:100px; border-radius:50%; background:rgba(255,255,255,.08);
+            border:2px solid rgba(255,255,255,.25); display:none; }
+  #joyStick{ position:absolute; width:44px; height:44px; border-radius:50%; background:rgba(255,255,255,.35); }
+  #jumpBtn{ position:absolute; right:26px; bottom:120px; width:70px; height:70px; border-radius:50%;
+            background:rgba(255,255,255,.12); border:2px solid rgba(255,255,255,.3); color:#fff; font-size:13px;
+            font-weight:700; pointer-events:auto; display:flex; align-items:center; justify-content:center; }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="crosshair"></div>
+
+<div id="hud">
+  <div class="pill" id="status"><span id="dot"></span><span id="statusText">Offline</span></div>
+  <div class="pill" id="score">💎 0 / 0</div>
+</div>
+<div id="toast"></div>
+
+<div id="mobileControls">
+  <div id="joyZone"><div id="joyBase"><div id="joyStick"></div></div></div>
+  <div id="lookZone"></div>
+  <div id="jumpBtn">JUMP</div>
+</div>
+
+<div id="overlay">
+  <div id="panel">
+    <h1>AETHERFALL</h1>
+    <p>Collect every floating shard and reach the glowing portal atop the ruins. Climb the broken platforms — gravity is real here.</p>
+    <label>Multiplayer server (optional — WebSocket URL)</label>
+    <input type="text" id="serverUrl" value="ws://localhost:8080" placeholder="ws://your-server:8080">
+    <div class="btnrow">
+      <button class="big" id="playSolo">Play Solo</button>
+      <button class="big" id="playNet">Connect &amp; Play</button>
+    </div>
+    <div class="keys" id="keyHints">
+      <span class="key">W A S D</span><span class="key">Move</span>
+      <span class="key">Mouse</span><span class="key">Look</span>
+      <span class="key">Space</span><span class="key">Jump</span>
+      <span class="key">Shift</span><span class="key">Sprint</span>
+    </div>
+  </div>
+</div>
+
+<div id="endScreen">
+  <div>
+    <h2>Portal Reached!</h2>
+    <div id="finalScore" class="pill" style="display:inline-block"></div><br>
+    <button id="restart">Play Again</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+
+/* ---------------------------------------------------------- utilities */
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+const $ = id => document.getElementById(id);
+function toast(msg, ms=1800){
+  const t = $('toast'); t.textContent = msg; t.style.opacity = 1;
+  clearTimeout(toast._h); toast._h = setTimeout(()=> t.style.opacity = 0, ms);
+}
+
+/* ---------------------------------------------------------- terrain height field (shared by mesh + physics) */
+function terrainHeight(x, z){
+  return Math.sin(x*0.08)*1.5 + Math.cos(z*0.08)*1.4 + Math.sin((x+z)*0.05)*0.8;
+}
+
+/* ---------------------------------------------------------- procedural canvas textures */
+function makeTexture(draw, size=256){
+  const cv = document.createElement('canvas'); cv.width = cv.height = size;
+  draw(cv.getContext('2d'), size);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+const grassTex = makeTexture((ctx,s)=>{
+  ctx.fillStyle = '#3c6b3f'; ctx.fillRect(0,0,s,s);
+  for(let i=0;i<1400;i++){
+    ctx.fillStyle = `rgba(${40+Math.random()*40},${90+Math.random()*60},${40+Math.random()*30},0.5)`;
+    const x=Math.random()*s, y=Math.random()*s, r=1+Math.random()*2;
+    ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill();
+  }
+});
+grassTex.repeat.set(40,40);
+const rockTex = makeTexture((ctx,s)=>{
+  ctx.fillStyle = '#6b6a63'; ctx.fillRect(0,0,s,s);
+  for(let i=0;i<900;i++){
+    ctx.fillStyle = `rgba(${90+Math.random()*40},${88+Math.random()*40},${80+Math.random()*30},0.5)`;
+    ctx.fillRect(Math.random()*s, Math.random()*s, 2+Math.random()*4, 2+Math.random()*4);
+  }
+});
+rockTex.repeat.set(4,4);
+
+/* ---------------------------------------------------------- renderer / scene / camera */
+const canvas = $('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !isTouch, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8fc7e8);
+scene.fog = new THREE.FogExp2(0x8fc7e8, 0.012);
+
+const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 500);
+
+function resize(){
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+}
+window.addEventListener('resize', resize); resize();
+
+/* ---------------------------------------------------------- lighting */
+scene.add(new THREE.HemisphereLight(0xbfe3ff, 0x33422b, 0.7));
+const sun = new THREE.DirectionalLight(0xfff2d6, 1.15);
+sun.position.set(40, 60, 20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.left = -70; sun.shadow.camera.right = 70;
+sun.shadow.camera.top = 70; sun.shadow.camera.bottom = -70;
+sun.shadow.camera.far = 160;
+sun.shadow.bias = -0.0015;
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0x404050, 0.35));
+
+/* ---------------------------------------------------------- ground */
+const GROUND_SIZE = 160, SEGS = 100;
+const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, SEGS, SEGS);
+{
+  const pos = groundGeo.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const lx = pos.getX(i), ly = pos.getY(i);
+    pos.setZ(i, terrainHeight(lx, -ly));
+  }
+  groundGeo.computeVertexNormals();
+}
+const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map:grassTex, roughness:1 }));
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+/* ---------------------------------------------------------- platforms (climbable) */
+const platforms = []; // {mesh,x,y,z,w,h,d}
+function addPlatform(x,z,w,h,d,color=0x8d8578){
+  const baseY = terrainHeight(x,z);
+  const y = baseY + h/2 + 0.02;
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(w,h,d),
+    new THREE.MeshStandardMaterial({ map:rockTex, color, roughness:0.95 })
+  );
+  mesh.position.set(x,y,z);
+  mesh.castShadow = mesh.receiveShadow = true;
+  scene.add(mesh);
+  platforms.push({ x, y: y+h/2, z, w, h, d });
+  return y + h/2; // top surface Y
+}
+// staircase-like cluster leading up to a portal platform
+let topY = addPlatform(10, -6, 6, 1.2, 6);
+topY = addPlatform(16, -12, 5, 1.4, 5);
+topY = addPlatform(14, -20, 6, 2.0, 6);
+topY = addPlatform(6, -26, 7, 2.6, 7, 0x9a8f78);
+addPlatform(-14, 8, 5, 1.0, 5);
+addPlatform(-20, 16, 5, 1.6, 5);
+addPlatform(-8, -18, 4, 1.0, 4);
+
+/* ---------------------------------------------------------- portal (goal) */
+const portalPos = new THREE.Vector3(6, topY + 1.6, -26);
+const portalGroup = new THREE.Group();
+portalGroup.position.copy(portalPos);
+const portalRing = new THREE.Mesh(
+  new THREE.TorusGeometry(1.7, 0.22, 16, 40),
+  new THREE.MeshStandardMaterial({ color:0x5ce1e6, emissive:0x1fb6c9, emissiveIntensity:1.6, roughness:0.3 })
+);
+portalGroup.add(portalRing);
+const portalDisc = new THREE.Mesh(
+  new THREE.CircleGeometry(1.5, 32),
+  new THREE.MeshBasicMaterial({ color:0x0fffe0, transparent:true, opacity:0.35, side:THREE.DoubleSide })
+);
+portalGroup.add(portalDisc);
+const portalLight = new THREE.PointLight(0x5ce1e6, 2.2, 12);
+portalLight.position.set(0,0,0.5);
+portalGroup.add(portalLight);
+scene.add(portalGroup);
+
+/* ---------------------------------------------------------- decoration: trees & rocks */
+function tree(x,z){
+  const y = terrainHeight(x,z);
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.26,2.2,7),
+    new THREE.MeshStandardMaterial({ color:0x6b4a30, roughness:1 }));
+  trunk.position.y = 1.1; trunk.castShadow = true;
+  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.3,2.6,8),
+    new THREE.MeshStandardMaterial({ color:0x2f6b3a, roughness:0.9 }));
+  leaves.position.y = 2.9; leaves.castShadow = true;
+  g.add(trunk, leaves); g.position.set(x,y,z);
+  scene.add(g);
+}
+function rock(x,z,s=1){
+  const y = terrainHeight(x,z);
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(s,0),
+    new THREE.MeshStandardMaterial({ color:0x7d7a70, roughness:1, flatShading:true }));
+  m.position.set(x,y+s*0.4,z); m.rotation.set(Math.random()*6,Math.random()*6,0);
+  m.castShadow = m.receiveShadow = true;
+  scene.add(m);
+}
+for(let i=0;i<26;i++){
+  const a = Math.random()*Math.PI*2, r = 20+Math.random()*55;
+  tree(Math.cos(a)*r, Math.sin(a)*r);
+}
+for(let i=0;i<16;i++){
+  const a = Math.random()*Math.PI*2, r = 15+Math.random()*60;
+  rock(Math.cos(a)*r, Math.sin(a)*r, 0.6+Math.random()*1.1);
+}
+
+/* ---------------------------------------------------------- collectible gems */
+const gemSpots = [
+  [4,-4],[12,-9],[15,-16],[9,-23],[-12,6],[-18,14],[-8,-16],
+  [0,0],[-4,10],[20,4],[-24,-10],[3,-30]
+];
+const gems = [];
+const gemGeo = new THREE.OctahedronGeometry(0.4,0);
+const gemMat = new THREE.MeshStandardMaterial({ color:0xffcb6b, emissive:0xb8790a, emissiveIntensity:0.9, roughness:0.25, metalness:0.4 });
+gemSpots.forEach(([x,z], i)=>{
+  let baseY = terrainHeight(x,z) + 1.1;
+  // lift gems that sit on a platform footprint
+  for(const p of platforms){
+    if (Math.abs(x-p.x) < p.w/2 && Math.abs(z-p.z) < p.d/2) baseY = Math.max(baseY, p.y + 1.0);
+  }
+  const m = new THREE.Mesh(gemGeo, gemMat.clone());
+  m.position.set(x, baseY, z);
+  m.castShadow = true;
+  scene.add(m);
+  gems.push({ mesh:m, x, z, baseY, taken:false, phase:i });
+});
+let totalGems = gems.length, collected = 0;
+$('score').textContent = `💎 0 / ${totalGems}`;
+
+/* ---------------------------------------------------------- ground/platform height sampling for physics */
+function groundAt(x,z){
+  let h = terrainHeight(x,z);
+  for(const p of platforms){
+    if (Math.abs(x-p.x) < p.w/2 + 0.4 && Math.abs(z-p.z) < p.d/2 + 0.4){
+      if (p.y > h) h = p.y;
+    }
+  }
+  return h;
+}
+
+/* ---------------------------------------------------------- player */
+const myId = 'p_' + Math.random().toString(36).slice(2,9);
+const myColor = new THREE.Color().setHSL(Math.random(), 0.65, 0.55);
+
+function buildAvatar(color){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.32,1.0,10),
+    new THREE.MeshStandardMaterial({ color, roughness:0.6 }));
+  body.position.y = 0.9; body.castShadow = true;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.28,14,14),
+    new THREE.MeshStandardMaterial({ color:0xffe0c2, roughness:0.7 }));
+  head.position.y = 1.55; head.castShadow = true;
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.4,0.1,0.08),
+    new THREE.MeshStandardMaterial({ color, emissive:color, emissiveIntensity:0.6 }));
+  visor.position.set(0,1.58,0.24);
+  g.add(body, head, visor);
+  return g;
+}
+const player = buildAvatar(myColor);
+player.position.set(0, terrainHeight(0,0)+1.2, 6);
+scene.add(player);
+
+const playerState = {
+  vel: new THREE.Vector3(),
+  onGround: false,
+  yaw: Math.PI,
+  pitch: -0.25,
+};
+
+/* camera rig */
+let camDist = 6.2;
+function updateCamera(){
+  const cx = player.position.x + Math.sin(playerState.yaw)*Math.cos(playerState.pitch)*-camDist;
+  const cz = player.position.z + Math.cos(playerState.yaw)*Math.cos(playerState.pitch)*-camDist;
+  const cy = player.position.y + 1.6 + Math.sin(playerState.pitch)*-camDist*0.6 + 2.0;
+  const desired = new THREE.Vector3(cx, Math.max(cy, groundAt(cx,cz)+0.6), cz);
+  camera.position.lerp(desired, 0.18);
+  const lookAt = player.position.clone().add(new THREE.Vector3(0,1.4,0));
+  camera.lookAt(lookAt);
+}
+
+/* ---------------------------------------------------------- input: desktop */
+const keys = {};
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+let pointerLocked = false;
+canvas.addEventListener('click', () => { if(!isTouch && started) canvas.requestPointerLock(); });
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === canvas;
+  $('crosshair').style.display = pointerLocked ? 'block' : 'none';
+});
+window.addEventListener('mousemove', e => {
+  if (!pointerLocked) return;
+  playerState.yaw   -= e.movementX * 0.0022;
+  playerState.pitch  = Math.max(-0.9, Math.min(0.9, playerState.pitch - e.movementY * 0.0022));
+});
+
+/* ---------------------------------------------------------- input: mobile */
+let joyVec = {x:0,y:0}, joyActive = false, joyTouchId = null, joyOrigin = {x:0,y:0};
+let lookTouchId = null, lastLook = {x:0,y:0};
+let jumpPressed = false;
+
+if (isTouch){
+  $('mobileControls').style.display = 'block';
+  $('keyHints').innerHTML = '<span class="key">Left pad</span><span class="key">Move</span><span class="key">Right side</span><span class="key">Look / drag</span><span class="key">JUMP btn</span><span class="key">Jump</span>';
+
+  const joyZone = $('joyZone'), joyBase = $('joyBase'), joyStick = $('joyStick'), lookZone = $('lookZone');
+
+  joyZone.addEventListener('touchstart', e => {
+    const t = e.changedTouches[0];
+    joyTouchId = t.identifier; joyActive = true;
+    joyOrigin = { x:t.clientX, y:t.clientY };
+    joyBase.style.display = 'block';
+    joyBase.style.left = (t.clientX-50)+'px'; joyBase.style.top = (t.clientY-50)+'px';
+    joyStick.style.left = '28px'; joyStick.style.top = '28px';
+  }, {passive:true});
+  joyZone.addEventListener('touchmove', e => {
+    for(const t of e.changedTouches){
+      if (t.identifier !== joyTouchId) continue;
+      let dx = t.clientX-joyOrigin.x, dy = t.clientY-joyOrigin.y;
+      const len = Math.hypot(dx,dy), max=50;
+      if (len>max){ dx=dx/len*max; dy=dy/len*max; }
+      joyStick.style.left = (28+dx)+'px'; joyStick.style.top = (28+dy)+'px';
+      joyVec = { x: dx/max, y: dy/max };
+    }
+  }, {passive:true});
+  function joyEnd(e){
+    for(const t of e.changedTouches){
+      if (t.identifier !== joyTouchId) continue;
+      joyActive = false; joyVec = {x:0,y:0}; joyBase.style.display='none';
+    }
+  }
+  joyZone.addEventListener('touchend', joyEnd);
+  joyZone.addEventListener('touchcancel', joyEnd);
+
+  lookZone.addEventListener('touchstart', e => {
+    const t = e.changedTouches[0];
+    lookTouchId = t.identifier; lastLook = { x:t.clientX, y:t.clientY };
+  }, {passive:true});
+  lookZone.addEventListener('touchmove', e => {
+    for(const t of e.changedTouches){
+      if (t.identifier !== lookTouchId) continue;
+      const dx = t.clientX-lastLook.x, dy = t.clientY-lastLook.y;
+      lastLook = { x:t.clientX, y:t.clientY };
+      playerState.yaw   -= dx * 0.0045;
+      playerState.pitch  = Math.max(-0.9, Math.min(0.9, playerState.pitch - dy*0.0045));
+    }
+  }, {passive:true});
+  lookZone.addEventListener('touchend', e => { for(const t of e.changedTouches) if(t.identifier===lookTouchId) lookTouchId=null; });
+
+  const jumpBtn = $('jumpBtn');
+  jumpBtn.addEventListener('touchstart', e => { e.preventDefault(); jumpPressed = true; }, {passive:false});
+  jumpBtn.addEventListener('touchend', e => { jumpPressed = false; });
+}
+
+/* ---------------------------------------------------------- simple audio ping (WebAudio, no assets) */
+let actx;
+function ping(freq=880, dur=0.12){
+  try{
+    actx = actx || new (window.AudioContext||window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.15, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime+dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime+dur);
+  }catch(e){}
+}
+
+/* ---------------------------------------------------------- multiplayer (WebSocket) */
+const remotePlayers = new Map(); // id -> {group, target:{pos,yaw}, color}
+let ws = null, netTimer = 0;
+
+function connectNetwork(url){
+  try{
+    ws = new WebSocket(url);
+  }catch(e){ setStatus(false); toast('Invalid server URL — playing solo'); return; }
+  setStatus(false, 'Connecting…');
+  ws.onopen = () => {
+    setStatus(true);
+    ws.send(JSON.stringify({ type:'join', id:myId, color: myColor.getHex() }));
+  };
+  ws.onmessage = ev => {
+    let msg; try{ msg = JSON.parse(ev.data); }catch(e){ return; }
+    if (msg.type === 'update' && msg.id !== myId){
+      let r = remotePlayers.get(msg.id);
+      if (!r){
+        const group = buildAvatar(new THREE.Color(msg.color ?? 0xffffff));
+        scene.add(group);
+        r = { group, target: new THREE.Vector3(), yaw:0 };
+        remotePlayers.set(msg.id, r);
+      }
+      r.target.set(msg.x, msg.y, msg.z);
+      r.yaw = msg.yaw ?? 0;
+    } else if (msg.type === 'leave'){
+      const r = remotePlayers.get(msg.id);
+      if (r){ scene.remove(r.group); remotePlayers.delete(msg.id); }
+    }
+  };
+  ws.onclose = () => { setStatus(false); ws = null; };
+  ws.onerror = () => { setStatus(false); toast('Could not reach multiplayer server — playing solo'); };
+}
+function setStatus(on, label){
+  $('dot').classList.toggle('on', on);
+  $('statusText').textContent = label || (on ? 'Connected' : 'Offline');
+}
+
+/* ---------------------------------------------------------- game flow */
+let started = false, finished = false;
+const clock = new THREE.Clock();
+
+$('playSolo').addEventListener('click', () => startGame(false));
+$('playNet').addEventListener('click', () => startGame(true));
+$('restart').addEventListener('click', () => location.reload());
+
+function startGame(withNet){
+  $('overlay').style.display = 'none';
+  started = true;
+  if (withNet){
+    const url = $('serverUrl').value.trim();
+    if (url) connectNetwork(url);
+  }
+  if (!isTouch) canvas.requestPointerLock();
+  clock.start();
+  animate();
+}
+
+/* ---------------------------------------------------------- physics step */
+const GRAVITY = -22, JUMP_SPEED = 8.2, WALK = 4.6, SPRINT = 7.4, AIR_CTRL = 0.35;
+
+function stepPlayer(dt){
+  const forward = (keys['KeyW']||keys['ArrowUp']?1:0) - (keys['KeyS']||keys['ArrowDown']?1:0);
+  const strafe  = (keys['KeyD']||keys['ArrowRight']?1:0) - (keys['KeyA']||keys['ArrowLeft']?1:0);
+  let mx = -strafe, mz = -forward; // touch overrides
+  if (isTouch && (joyVec.x||joyVec.y)){ mx = joyVec.x; mz = joyVec.y; }
+
+  const speed = (keys['ShiftLeft']||keys['ShiftRight']) ? SPRINT : WALK;
+  const sy = Math.sin(playerState.yaw), cy = Math.cos(playerState.yaw);
+  // forward/right vectors relative to camera yaw
+  const fwd = new THREE.Vector3(sy, 0, cy);
+  const right = new THREE.Vector3(cy, 0, -sy);
+  const move = new THREE.Vector3()
+    .addScaledVector(fwd, -mz)
+    .addScaledVector(right, mx);
+  if (move.lengthSq() > 1) move.normalize();
+
+  const ctrl = playerState.onGround ? 1 : AIR_CTRL;
+  playerState.vel.x = THREE.MathUtils.lerp(playerState.vel.x, move.x*speed, ctrl*0.35);
+  playerState.vel.z = THREE.MathUtils.lerp(playerState.vel.z, move.z*speed, ctrl*0.35);
+
+  const jumpWanted = keys['Space'] || jumpPressed;
+  if (jumpWanted && playerState.onGround){
+    playerState.vel.y = JUMP_SPEED;
+    playerState.onGround = false;
+  }
+  playerState.vel.y += GRAVITY * dt;
+
+  player.position.x += playerState.vel.x * dt;
+  player.position.z += playerState.vel.z * dt;
+  player.position.y += playerState.vel.y * dt;
+
+  const gY = groundAt(player.position.x, player.position.z) + 1.2;
+  if (player.position.y <= gY){
+    player.position.y = gY;
+    playerState.vel.y = 0;
+    playerState.onGround = true;
+  } else {
+    playerState.onGround = false;
+  }
+
+  // face movement direction smoothly
+  if (move.lengthSq() > 0.02){
+    const targetAngle = Math.atan2(move.x, move.z);
+    let cur = player.rotation.y, diff = targetAngle - cur;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    player.rotation.y += diff * Math.min(1, dt*10);
+  }
+
+  // keep inside terrain bounds
+  const bound = GROUND_SIZE/2 - 2;
+  player.position.x = THREE.MathUtils.clamp(player.position.x, -bound, bound);
+  player.position.z = THREE.MathUtils.clamp(player.position.z, -bound, bound);
+}
+
+/* ---------------------------------------------------------- main loop */
+function animate(){
+  if (!started) return;
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  if (!finished) stepPlayer(dt);
+  updateCamera();
+
+  // gems
+  gems.forEach(g => {
+    if (g.taken) return;
+    g.mesh.rotation.y += dt*1.6;
+    g.mesh.position.y = g.baseY + Math.sin(t*2 + g.phase)*0.15;
+    if (player.position.distanceTo(g.mesh.position) < 1.1){
+      g.taken = true;
+      scene.remove(g.mesh);
+      collected++;
+      $('score').textContent = `💎 ${collected} / ${totalGems}`;
+      ping(920 + collected*10);
+      toast('Shard collected');
+    }
+  });
+
+  // portal
+  portalRing.rotation.z += dt*0.6;
+  portalDisc.rotation.z -= dt*0.9;
+  if (!finished && player.position.distanceTo(portalPos) < 2.2){
+    finished = true;
+    $('finalScore').textContent = `Shards: ${collected} / ${totalGems}`;
+    $('endScreen').style.display = 'flex';
+    if (document.pointerLockElement) document.exitPointerLock();
+    ping(1200,0.25);
+  }
+
+  // remote players interpolation + outgoing state
+  remotePlayers.forEach(r => {
+    r.group.position.lerp(r.target, 0.25);
+    let cur = r.group.rotation.y, diff = r.yaw - cur;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    r.group.rotation.y += diff*0.2;
+  });
+  netTimer += dt;
+  if (ws && ws.readyState === WebSocket.OPEN && netTimer > 0.08){
+    netTimer = 0;
+    ws.send(JSON.stringify({
+      type:'update', id:myId, color: myColor.getHex(),
+      x:player.position.x, y:player.position.y, z:player.position.z,
+      yaw: player.rotation.y
+    }));
+  }
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('beforeunload', () => {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'leave', id:myId}));
+});
+
+})();
+</script>
+</body>
+</html>
